@@ -19,16 +19,14 @@ android {
     }
 
     signingConfigs {
-        create("release") {
-            // The module signature is irrelevant to LSPosed, so by default we sign the
-            // release with the standard Android debug keystore (so the APK is installable).
-            // Override in ~/.gradle/gradle.properties with:
-            //   RELEASE_STORE_FILE, RELEASE_STORE_PASSWORD, RELEASE_KEY_ALIAS, RELEASE_KEY_PASSWORD
-            val home = System.getProperty("user.home")
-            storeFile = file((findProperty("RELEASE_STORE_FILE") as String?) ?: "$home/.android/debug.keystore")
-            storePassword = (findProperty("RELEASE_STORE_PASSWORD") as String?) ?: "android"
-            keyAlias = (findProperty("RELEASE_KEY_ALIAS") as String?) ?: "androiddebugkey"
-            keyPassword = (findProperty("RELEASE_KEY_PASSWORD") as String?) ?: "android"
+        // Pinned keystore committed in this repo => identical signature on every CI run.
+        // (An Xposed module signature grants no privileges; this is for install stability.)
+        create("pinned") {
+            storeFile = file("signing/module.p12")
+            storePassword = "modulepass"
+            keyAlias = "module"
+            keyPassword = "modulepass"
+            storeType = "PKCS12"
         }
     }
 
@@ -38,10 +36,11 @@ android {
             // (reflective class/method lookups). Re-enable only with proper keep rules.
             isMinifyEnabled = false
             proguardFiles("proguard-rules.pro")
-            signingConfig = signingConfigs.getByName("release")
+            signingConfig = signingConfigs.getByName("pinned")
         }
         named("debug") {
             versionNameSuffix = "-debug-" + DateTimeFormatter.ofPattern("yyyyMMddHHmmss").format(LocalDateTime.now())
+            signingConfig = signingConfigs.getByName("pinned")
         }
     }
     compileOptions {
