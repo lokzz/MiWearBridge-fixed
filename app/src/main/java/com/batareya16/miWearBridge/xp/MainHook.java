@@ -127,6 +127,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             Class<?> fnCls = XposedHelpers.findClass("kotlin.jvm.functions.Function2", hostLoader);
             Object cb = Proxy.newProxyInstance(hostLoader, new Class<?>[]{fnCls}, (proxy, method, args) -> {
                 if ("invoke".equals(method.getName()) && args != null && args.length >= 1) {
+                    final java.util.List<String> lines = new java.util.ArrayList<>();
                     Log.i("=== Installed QuickApps on band ===", null);
                     Object list = args[0];
                     if (list instanceof java.util.List) {
@@ -134,15 +135,30 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                             try {
                                 String pkg = (String) XposedHelpers.callMethod(e, "getPackageName");
                                 String name = (String) XposedHelpers.callMethod(e, "getName");
+                                lines.add(pkg + "  (" + name + ")");
                                 Log.i("  " + pkg + "  name=" + name, null);
                             } catch (Throwable ignore) {
+                                lines.add(String.valueOf(e));
                                 Log.i("  " + String.valueOf(e), null);
                             }
                         }
                         Log.i("=== total=" + ((java.util.List<?>) list).size() + " ===", null);
                     } else {
-                        Log.i("  raw=" + String.valueOf(list), null);
+                        lines.add("raw=" + String.valueOf(list));
                     }
+                    final String title = "Installed QuickApps (" + lines.size() + ")";
+                    final CharSequence[] items = lines.toArray(new CharSequence[0]);
+                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                        try {
+                            new AlertDialog.Builder(ctx)
+                                    .setTitle(title)
+                                    .setItems(items.length == 0 ? new CharSequence[]{"(none installed)"} : items, null)
+                                    .setPositiveButton("Close", null)
+                                    .show();
+                        } catch (Throwable t) {
+                            Log.e(t, "show list dialog");
+                        }
+                    });
                 }
                 return null;
             });
@@ -252,19 +268,19 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         builder.setView(view.getView());
         AlertDialog result = builder.create();
 
-        view.addNode(Save.Type.APP.getText(), v -> {
+        view.addNode("Install App", v -> {
             Save.status = Save.Type.APP;
             launchPicker();
             result.dismiss();
         });
 
-        view.addNode(Save.Type.WATCHFACE.getText(), v -> {
+        view.addNode("Install WatchFace", v -> {
             Save.status = Save.Type.WATCHFACE;
             launchPicker();
             result.dismiss();
         });
 
-        view.addNode(Save.Type.FIRMWARE.getText(), v -> {
+        view.addNode("(WARN) Install Firmware", v -> {
             AlertDialog.Builder warningDialog = createWarningDialog(context);
             warningDialog.setPositiveButton("OK", (dialog, which) -> {
                 Save.status = Save.Type.FIRMWARE;
@@ -273,6 +289,12 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             warningDialog.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
             warningDialog.show();
             result.dismiss();
+        });
+
+        view.addNode("Uninstall App", v -> {
+            Save.status = null;
+            result.dismiss();
+            showUninstallDialog(context);
         });
 
         view.addNode(Save.Type.PULL_LOG.getText(), v -> {
@@ -326,12 +348,6 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             Save.status = null;
             result.dismiss();
             listInstalledAppsWhenConnected(context, 0);
-        });
-
-        view.addNode("Uninstall app", v -> {
-            Save.status = null;
-            result.dismiss();
-            showUninstallDialog(context);
         });
 
         view.addNode("Bind apps to watch", v -> {
@@ -682,6 +698,32 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                         }
                     });
             Log.i("Generic onActivityResult install hook registered", null);
+
+        // Real success/failure callbacks from the SDK task queue.
+        String[] taskClasses = {
+                "com.xiaomi.xms.wearable.ui.appshop.manager.AppInstallManager$InstallTask",
+                "com.xiaomi.xms.wearable.ui.appshop.manager.AppInstallManager$UnInstallTask"
+        };
+        for (final String clsName : taskClasses) {
+            try {
+                Class<?> tc = XposedHelpers.findClass(clsName, classLoader);
+                XposedHelpers.findAndHookMethod(tc, "onTaskFinished", boolean.class, new XC_MethodHook() {
+                    @Override
+                    protected void afterHookedMethod(MethodHookParam p) throws Throwable {
+                        boolean ok = (Boolean) p.args[0];
+                        String op = clsName.contains("UnInstall") ? "UNINSTALL" : "INSTALL";
+                        String msg = op + (ok ? " SUCCESS!" : " FAILED");
+                        Log.i("WorkingApp " + msg, null);
+                        try {
+                            Toast.makeText(EzXHelper.getAppContext(), "WorkingApp " + msg,
+                                    Toast.LENGTH_LONG).show();
+                        } catch (Throwable ignore) { }
+                    }
+                });
+            } catch (Throwable t) {
+                Log.e(t, "hook taskFinished " + clsName);
+            }
+        }
         } catch (Throwable t) {
             Log.e(t, "generic onActivityResult hook");
         }
