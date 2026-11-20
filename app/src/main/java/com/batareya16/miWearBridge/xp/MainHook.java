@@ -392,14 +392,14 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         // Newer Mi Fitness builds renamed/removed ThirdAppDebugFragment. Do NOT
         // abort here: the About-page hook must still be installed so the hidden
         // menu appears. Install handling falls back to a generic Activity hook.
-        final Class<?> thirdAppDebugFragment;
+        Class<?> foundFragment = null;
         try {
-            thirdAppDebugFragment = XposedHelpers.findClass(
+            foundFragment = XposedHelpers.findClass(
                     "com.xiaomi.xms.wearable.ui.debug.ThirdAppDebugFragment", classLoader);
         } catch (Throwable missing) {
             Log.i("ThirdAppDebugFragment not found - using generic install fallback", null);
-            thirdAppDebugFragment = null;
         }
+        final Class<?> thirdAppDebugFragment = foundFragment;
 
         Method methodStartWebView = EntryPoint.findEntryPoint();
         if (methodStartWebView == null) {
