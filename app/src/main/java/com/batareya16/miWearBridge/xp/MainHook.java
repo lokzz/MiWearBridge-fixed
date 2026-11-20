@@ -414,11 +414,14 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             // rows and pass different string args. Accept either (and the old
             // combined one) instead of requiring one exact resource value.
             Context appContext = EzXHelper.getAppContext();
-            String arg = String.valueOf(param.args[1]);
-            boolean isAboutLink = arg.contains("user_agreement")
-                    || arg.contains("privacy")
-                    || arg.contains("license_agreement");
+            StringBuilder dump = new StringBuilder("startWebView args:");
+            for (Object a : param.args) dump.append(" [").append(String.valueOf(a)).append("]");
+            Log.i(dump.toString(), null);
+            String joined = dump.toString().toLowerCase(java.util.Locale.ROOT);
+            boolean isAboutLink = joined.contains("agreement") || joined.contains("privacy")
+                    || joined.contains("license") || joined.contains("user");
             if (!isAboutLink) {
+                Log.i("About-link check did not match; passing through", null);
                 return;
             }
 
