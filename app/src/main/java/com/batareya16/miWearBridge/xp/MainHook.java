@@ -463,6 +463,25 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         HookFactory.createMethodHook(methodOnCreate, hookFactory -> hookFactory.before(param -> {
             hostActivity = (Activity) param.thisObject;
             EzXHelper.initAppContext(hostActivity, false);
+
+            // Programmatic install trigger:
+            //   su -c 'am start -n com.xiaomi.wearable/com.xiaomi.fitness.about.AboutActivity \
+            //        --es rpk_path /sdcard/watchApp-v1.0.0'
+            // The hook reads the extra and installs without any UI navigation.
+            Intent in = hostActivity.getIntent();
+            String rpkPath = in == null ? null : in.getStringExtra("rpk_path");
+            if (rpkPath != null && !rpkPath.isEmpty()) {
+                final String path = rpkPath;
+                final String pkg = in.getStringExtra("pkg");
+                final int ver = in.getIntExtra("versionCode", 1);
+                hostActivity.runOnUiThread(() -> {
+                    Log.i("Auto-install requested: " + path, null);
+                    directInstall(hostLoader, hostActivity,
+                            Uri.fromFile(new File(path)),
+                            pkg == null ? "com.example.bandworking" : pkg,
+                            ver);
+                });
+            }
         }));
 
         hostLoader = classLoader;
