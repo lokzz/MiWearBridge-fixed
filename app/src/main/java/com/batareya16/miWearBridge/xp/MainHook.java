@@ -20,6 +20,9 @@ import com.github.kyuubiran.ezxhelper.finders.MethodFinder;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.io.FileOutputStream;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.lang.reflect.Method;
 import java.util.Arrays;
 import java.util.Locale;
@@ -46,6 +49,53 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
     // EzXHelper.getSafeClassLoader() inside a WebView callback can hand back the
     // WebView sandbox classloader, which has none of the XMS classes.
     private static ClassLoader hostLoader;
+    private static Activity hostActivity;
+
+    /** Mi Fitness 3.60.0i removed ThirdAppDebugFragment and gotoDebugPage.
+     *  Launch our own file picker instead, then install via AppInstallManager. */
+    private static void launchPicker() {
+        try {
+            Intent pick = new Intent(Intent.ACTION_GET_CONTENT);
+            pick.setType("*/*");
+            if (hostActivity != null) {
+                hostActivity.startActivityForResult(pick, 10);
+            } else {
+                Log.e("No host Activity for file picker", null);
+            }
+        } catch (Throwable t) {
+            Log.e(t, "launchPicker");
+        }
+    }
+
+    private static void directInstall(ClassLoader loader, Context ctx, Uri uri, String pkg, int versionCode) {
+        try {
+            Class<?> dlCls = XposedHelpers.findClass(
+                    "com.xiaomi.xms.wearable.ui.appshop.manager.AppDownloadManager", loader);
+            Object dlCompanion = XposedHelpers.getStaticObjectField(dlCls, "Companion");
+            Object dlMgr = XposedHelpers.callMethod(dlCompanion, "getINSTANCE");
+            String path = (String) XposedHelpers.callMethod(dlMgr, "getAppFilePath", pkg);
+            if (path == null) throw new IllegalStateException("getAppFilePath returned null");
+
+            InputStream in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) throw new IllegalStateException("Cannot open RPK uri");
+            OutputStream out = new FileOutputStream(path);
+            byte[] buf = new byte[8192];
+            int n;
+            while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
+            out.close();
+            in.close();
+            Log.i("Wrote RPK to " + path, null);
+
+            Class<?> imCls = XposedHelpers.findClass(
+                    "com.xiaomi.xms.wearable.ui.appshop.manager.AppInstallManager", loader);
+            Object imCompanion = XposedHelpers.getStaticObjectField(imCls, "Companion");
+            Object im = XposedHelpers.callMethod(imCompanion, "getINSTANCE");
+            XposedHelpers.callMethod(im, "install", pkg, versionCode);
+            Log.i("Called AppInstallManager.install(" + pkg + "," + versionCode + ")", null);
+        } catch (Throwable t) {
+            Log.e(t, "directInstall");
+        }
+    }
 
     private static void gotoDebugPage(ClassLoader classLoader, Context activity) {
         try {
@@ -78,7 +128,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
 
         view.addNode(Save.Type.APP.getText(), v -> {
             Save.status = Save.Type.APP;
-            gotoDebugPage(loader, context);
+            launchPicker();
             result.dismiss();
         });
 
@@ -385,7 +435,10 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         // Initialize EzXHelper's context using the About page Activity
         Class<?> clazzAboutActivity = ClassUtils.loadClass("com.xiaomi.fitness.about.AboutActivity", null);
         Method methodOnCreate = MethodFinder.fromClass(clazzAboutActivity).filterByName("onCreate").first();
-        HookFactory.createMethodHook(methodOnCreate, hookFactory -> hookFactory.before(param -> EzXHelper.initAppContext((Activity) param.thisObject, false)));
+        HookFactory.createMethodHook(methodOnCreate, hookFactory -> hookFactory.before(param -> {
+            hostActivity = (Activity) param.thisObject;
+            EzXHelper.initAppContext(hostActivity, false);
+        }));
 
         hostLoader = classLoader;
 
@@ -447,10 +500,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                             Context ctx = (Context) p.thisObject;
                             switch (Save.status) {
                                 case APP:
-                                    if (!tryPrepareInstall(p.thisObject, arg)) {
-                                        Log.e("prepareInstall not found on "
-                                                + p.thisObject.getClass().getName(), null);
-                                    }
+                                    directInstall(hostLoader, ctx, data,
+                                            "com.example.bandworking", 1);
                                     break;
                                 case WATCHFACE:
                                     onHandleWatchFace(hostLoader, ctx, data);
