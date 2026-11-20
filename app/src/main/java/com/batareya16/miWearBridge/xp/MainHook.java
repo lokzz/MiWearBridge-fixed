@@ -20,6 +20,7 @@ import com.github.kyuubiran.ezxhelper.finders.MethodFinder;
 import org.jetbrains.annotations.Nullable;
 
 import java.io.File;
+import java.lang.reflect.Proxy;
 import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -108,6 +109,49 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             XposedHelpers.callMethod(instance, "gotoDebugPage", new Class<?>[]{Activity.class}, activity);
         } catch (Throwable e) {
             Log.e(e, "gotoDebugPage");
+        }
+    }
+
+    private static void listInstalledAppsWhenConnected(final Context ctx, int attempt) {
+        Object model = BypassBond.connectedModel(hostLoader);
+        if (model == null) {
+            if (attempt < 10) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> listInstalledAppsWhenConnected(ctx, attempt + 1), 2000);
+            } else {
+                Log.e("list apps gave up: device not connected after 20s", null);
+            }
+            return;
+        }
+        try {
+            Class<?> fnCls = XposedHelpers.findClass("kotlin.jvm.functions.Function2", hostLoader);
+            Object cb = Proxy.newProxyInstance(hostLoader, new Class<?>[]{fnCls}, (proxy, method, args) -> {
+                if ("invoke".equals(method.getName()) && args != null && args.length >= 1) {
+                    Log.i("=== Installed QuickApps on band ===", null);
+                    Object list = args[0];
+                    if (list instanceof java.util.List) {
+                        for (Object e : (java.util.List<?>) list) {
+                            try {
+                                String pkg = (String) XposedHelpers.callMethod(e, "getPackageName");
+                                String name = (String) XposedHelpers.callMethod(e, "getName");
+                                Log.i("  " + pkg + "  name=" + name, null);
+                            } catch (Throwable ignore) {
+                                Log.i("  " + String.valueOf(e), null);
+                            }
+                        }
+                        Log.i("=== total=" + ((java.util.List<?>) list).size() + " ===", null);
+                    } else {
+                        Log.i("  raw=" + String.valueOf(list), null);
+                    }
+                }
+                return null;
+            });
+            Class<?> ext = XposedHelpers.findClass(
+                    "com.xiaomi.xms.wearable.extensions.DeviceModelExtKt", hostLoader);
+            XposedHelpers.callStaticMethod(ext, "getInstalledWatchApp", model, cb);
+            Log.i("Requested installed QuickApp list from band", null);
+        } catch (Throwable t) {
+            Log.e(t, "listInstalledApps");
         }
     }
 
@@ -276,6 +320,12 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                 }
             });
             result.dismiss();
+        });
+
+        view.addNode("List installed QuickApps", v -> {
+            Save.status = null;
+            result.dismiss();
+            listInstalledAppsWhenConnected(context, 0);
         });
 
         view.addNode("Uninstall app", v -> {
@@ -533,6 +583,9 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             // The hook reads the extra and installs without any UI navigation.
             Intent in = hostActivity.getIntent();
             String rpkPath = in == null ? null : in.getStringExtra("rpk_path");
+            if (in != null && in.getBooleanExtra("list_apps", false)) {
+                hostActivity.runOnUiThread(() -> listInstalledAppsWhenConnected(hostActivity, 0));
+            }
             String uninstallPkg = in == null ? null : in.getStringExtra("uninstall_pkg");
             if (uninstallPkg != null && !uninstallPkg.isEmpty()) {
                 final String upkg = uninstallPkg;
