@@ -111,6 +111,26 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    /** Open the built-in third-party app list (Mi Fitness 3.60.0i). */
+    private static void openThirdAppList(Context ctx) {
+        try {
+            Class<?> xmsManager = XposedHelpers.findClass(
+                    "com.xms.wearable.export.XmsManager", hostLoader);
+            Object companionObj = XposedHelpers.getStaticObjectField(xmsManager, "Companion");
+            Class<?> extKt = XposedHelpers.findClass(
+                    "com.xms.wearable.export.XmsManagerExtKt", hostLoader);
+            Object instance = XposedHelpers.callStaticMethod(extKt, "getInstance",
+                    new Class<?>[]{XposedHelpers.findClass(
+                            "com.xms.wearable.export.XmsManager$Companion", hostLoader)},
+                    companionObj);
+            XposedHelpers.callMethod(instance, "gotoDeviceAuthorizationPage",
+                    new Class<?>[]{Context.class}, ctx);
+            Log.i("Opened third-party app list", null);
+        } catch (Throwable t) {
+            Log.e(t, "openThirdAppList");
+        }
+    }
+
     private static AlertDialog.Builder createWarningDialog(Context context) {
         AlertDialog.Builder builder = new AlertDialog.Builder(context);
         builder.setTitle(Res.string(Res.firmware_warning_title));
@@ -193,6 +213,11 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                     builder.show();
                 }
             });
+            result.dismiss();
+        });
+
+        view.addNode("Third-party apps (manage/uninstall)", v -> {
+            openThirdAppList(context);
             result.dismiss();
         });
 
