@@ -134,8 +134,9 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                         for (Object e : (java.util.List<?>) list) {
                             try {
                                 String pkg = (String) XposedHelpers.callMethod(e, "getPackageName");
-                                String name = (String) XposedHelpers.callMethod(e, "getName");
-                                lines.add(pkg + "  (" + name + ")");
+                                String name = null;
+                                try { name = (String) XposedHelpers.callMethod(e, "getAppName"); } catch (Throwable ignore) { }
+                                lines.add(pkg + "  (" + (name == null ? "?" : name) + ")");
                                 Log.i("  " + pkg + "  name=" + name, null);
                             } catch (Throwable ignore) {
                                 lines.add(String.valueOf(e));
@@ -148,15 +149,23 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                     }
                     final String title = "Installed QuickApps (" + lines.size() + ")";
                     final CharSequence[] items = lines.toArray(new CharSequence[0]);
-                    new android.os.Handler(android.os.Looper.getMainLooper()).post(() -> {
+                    Activity host = hostActivity;
+                    if (host == null || host.isFinishing()) {
+                        Log.i("List dialog skipped - host activity unavailable", null);
+                        return null;
+                    }
+                    host.runOnUiThread(() -> {
                         try {
-                            new AlertDialog.Builder(ctx)
+                            Log.i("Showing list dialog with " + items.length + " entries", null);
+                            new AlertDialog.Builder(host)
                                     .setTitle(title)
                                     .setItems(items.length == 0 ? new CharSequence[]{"(none installed)"} : items, null)
                                     .setPositiveButton("Close", null)
                                     .show();
                         } catch (Throwable t) {
                             Log.e(t, "show list dialog");
+                            Toast.makeText(host, title + ": " + java.util.Arrays.toString(items),
+                                    Toast.LENGTH_LONG).show();
                         }
                     });
                 }
