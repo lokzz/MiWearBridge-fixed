@@ -128,6 +128,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             Object cb = Proxy.newProxyInstance(hostLoader, new Class<?>[]{fnCls}, (proxy, method, args) -> {
                 if ("invoke".equals(method.getName()) && args != null && args.length >= 1) {
                     final java.util.List<String> lines = new java.util.ArrayList<>();
+                    final java.util.List<String> pkgs = new java.util.ArrayList<>();
                     Log.i("=== Installed QuickApps on band ===", null);
                     Object list = args[0];
                     if (list instanceof java.util.List) {
@@ -137,6 +138,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                                 String name = null;
                                 try { name = (String) XposedHelpers.callMethod(e, "getAppName"); } catch (Throwable ignore) { }
                                 lines.add(pkg + "  (" + (name == null ? "?" : name) + ")");
+                                pkgs.add(pkg);
                                 Log.i("  " + pkg + "  name=" + name, null);
                             } catch (Throwable ignore) {
                                 lines.add(String.valueOf(e));
@@ -158,8 +160,37 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
                         try {
                             Log.i("Showing list dialog with " + items.length + " entries", null);
                             new AlertDialog.Builder(host)
-                                    .setTitle(title)
-                                    .setItems(items.length == 0 ? new CharSequence[]{"(none installed)"} : items, null)
+                                    .setTitle(title + "  (tap one)")
+                                    .setItems(items.length == 0 ? new CharSequence[]{"(none installed)"} : items,
+                                            (d, which) -> {
+                                                if (which >= pkgs.size()) return;
+                                                final String picked = pkgs.get(which);
+                                                new AlertDialog.Builder(host)
+                                                        .setTitle(picked)
+                                                        .setItems(new CharSequence[]{
+                                                                "Uninstall this app", "Copy package name"},
+                                                                (d2, w2) -> {
+                                                                    if (w2 == 0) {
+                                                                        uninstallWhenConnected(host, picked, 0);
+                                                                    } else if (w2 == 1) {
+                                                                        try {
+                                                                            android.content.ClipboardManager cm =
+                                                                                    (android.content.ClipboardManager)
+                                                                                    host.getSystemService(Context.CLIPBOARD_SERVICE);
+                                                                            cm.setPrimaryClip(
+                                                                                    android.content.ClipData.newPlainText(
+                                                                                            "package", picked));
+                                                                            Toast.makeText(host,
+                                                                                    "Copied " + picked,
+                                                                                    Toast.LENGTH_SHORT).show();
+                                                                        } catch (Throwable t) {
+                                                                            Log.e(t, "copy package");
+                                                                        }
+                                                                    }
+                                                                })
+                                                        .setNegativeButton("Cancel", null)
+                                                        .show();
+                                            })
                                     .setPositiveButton("Close", null)
                                     .show();
                         } catch (Throwable t) {
