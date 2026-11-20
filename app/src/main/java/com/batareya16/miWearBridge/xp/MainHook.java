@@ -77,17 +77,8 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             String path = (String) XposedHelpers.callMethod(dlMgr, "getAppFilePath", pkg);
             if (path == null) throw new IllegalStateException("getAppFilePath returned null");
 
-            InputStream in;
-            String source = uri == null ? "" : uri.toString();
-            if (source.startsWith("file://")) source = source.substring(7);
-            String asset = null;
-            if (source.startsWith("asset:")) asset = source.substring(6);
-            if (asset != null) {
-                in = MainHook.class.getClassLoader().getResourceAsStream("assets/" + asset);
-            } else {
-                in = ctx.getContentResolver().openInputStream(uri);
-            }
-            if (in == null) throw new IllegalStateException("Cannot open RPK source: " + source);
+            InputStream in = ctx.getContentResolver().openInputStream(uri);
+            if (in == null) throw new IllegalStateException("Cannot open RPK uri");
             OutputStream out = new FileOutputStream(path);
             byte[] buf = new byte[8192];
             int n;
