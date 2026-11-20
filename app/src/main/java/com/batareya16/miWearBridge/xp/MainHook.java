@@ -119,20 +119,10 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             Object companion = XposedHelpers.getStaticObjectField(repoCls, "Companion");
             Object repo = XposedHelpers.callMethod(companion, "getInstance");
 
-            // Need the connected device id (did); try common accessors on the repo/model.
-            String did = null;
-            try { did = (String) XposedHelpers.callMethod(repo, "getDid"); } catch (Throwable ignore) { }
-            if (did == null) {
-                Class<?> dmCls = XposedHelpers.findClass(
-                        "com.xiaomi.fitness.device.manager.export.DeviceManagerExtKt", hostLoader);
-                Object dmCompanion = XposedHelpers.getStaticObjectField(
-                        XposedHelpers.findClass(
-                                "com.xiaomi.fitness.device.manager.export.WearableDeviceManager$Companion",
-                                hostLoader), "Companion");
-                Object dm = XposedHelpers.callStaticMethod(dmCls, "getInstance", dmCompanion);
-                Object model = XposedHelpers.callMethod(dm, "getCurrentDeviceModel");
-                did = (String) XposedHelpers.callMethod(model, "getDid");
-            }
+            // Use the proven connectedModel() helper from BypassBond.
+            Object model = BypassBond.connectedModel(hostLoader);
+            if (model == null) throw new IllegalStateException("device not connected");
+            String did = (String) XposedHelpers.callMethod(model, "getDid");
             if (did == null) throw new IllegalStateException("device id unavailable");
 
             Object entity = XposedHelpers.callMethod(repo, "getWatchApp", pkg, did);
