@@ -111,6 +111,19 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    private static void uninstallWhenConnected(Context ctx, String pkg, int attempt) {
+        if (BypassBond.connectedModel(hostLoader) == null) {
+            if (attempt < 10) {
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> uninstallWhenConnected(ctx, pkg, attempt + 1), 2000);
+            } else {
+                Log.e("Uninstall gave up: device not connected after 20s", null);
+            }
+            return;
+        }
+        directUninstall(ctx, pkg);
+    }
+
     /** Uninstall a QuickApp via Mi Fitness 3.60.0i AppInstallManager. */
     private static void directUninstall(Context ctx, String pkg) {
         try {
@@ -502,10 +515,9 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             String uninstallPkg = in == null ? null : in.getStringExtra("uninstall_pkg");
             if (uninstallPkg != null && !uninstallPkg.isEmpty()) {
                 final String upkg = uninstallPkg;
-                hostActivity.runOnUiThread(() -> {
-                    Log.i("Uninstall requested: " + upkg, null);
-                    directUninstall(hostActivity, upkg);
-                });
+                Log.i("Uninstall requested: " + upkg, null);
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
+                        () -> uninstallWhenConnected(hostActivity, upkg, 0), 2000);
             }
             if (rpkPath != null && !rpkPath.isEmpty()) {
                 final String path = rpkPath;
