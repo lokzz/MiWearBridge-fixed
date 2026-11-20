@@ -111,6 +111,26 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    private static void showUninstallDialog(Context ctx) {
+        try {
+            final EditText input = new EditText(ctx);
+            input.setSingleLine(true);
+            input.setText("com.example.bandworking");
+            new AlertDialog.Builder(ctx)
+                    .setTitle("Uninstall QuickApp")
+                    .setMessage("Package name to remove from the band:")
+                    .setView(input)
+                    .setPositiveButton("Uninstall", (d, w) -> {
+                        String pkg = input.getText().toString().trim();
+                        if (!pkg.isEmpty()) uninstallWhenConnected(ctx, pkg, 0);
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        } catch (Throwable t) {
+            Log.e(t, "showUninstallDialog");
+        }
+    }
+
     private static void uninstallWhenConnected(Context ctx, String pkg, int attempt) {
         if (BypassBond.connectedModel(hostLoader) == null) {
             if (attempt < 10) {
@@ -196,7 +216,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
 
         view.addNode(Save.Type.WATCHFACE.getText(), v -> {
             Save.status = Save.Type.WATCHFACE;
-            gotoDebugPage(loader, context);
+            launchPicker();
             result.dismiss();
         });
 
@@ -204,7 +224,7 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             AlertDialog.Builder warningDialog = createWarningDialog(context);
             warningDialog.setPositiveButton("OK", (dialog, which) -> {
                 Save.status = Save.Type.FIRMWARE;
-                gotoDebugPage(loader, context);
+                launchPicker();
             });
             warningDialog.setNegativeButton("Cancel", (dialog, which) -> dialog.cancel());
             warningDialog.show();
@@ -258,9 +278,10 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             result.dismiss();
         });
 
-        view.addNode("Third-party apps (manage/uninstall)", v -> {
-            openThirdAppList(context);
+        view.addNode("Uninstall app", v -> {
+            Save.status = null;
             result.dismiss();
+            showUninstallDialog(context);
         });
 
         view.addNode("Bind apps to watch", v -> {
