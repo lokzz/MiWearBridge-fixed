@@ -111,6 +111,45 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
         }
     }
 
+    /** Uninstall a QuickApp via Mi Fitness 3.60.0i AppInstallManager. */
+    private static void directUninstall(Context ctx, String pkg) {
+        try {
+            Class<?> repoCls = XposedHelpers.findClass(
+                    "com.xiaomi.xms.wearable.db.WatchAppRepository", hostLoader);
+            Object companion = XposedHelpers.getStaticObjectField(repoCls, "Companion");
+            Object repo = XposedHelpers.callMethod(companion, "getInstance");
+
+            // Need the connected device id (did); try common accessors on the repo/model.
+            String did = null;
+            try { did = (String) XposedHelpers.callMethod(repo, "getDid"); } catch (Throwable ignore) { }
+            if (did == null) {
+                Class<?> dmCls = XposedHelpers.findClass(
+                        "com.xiaomi.fitness.device.manager.export.DeviceManagerExtKt", hostLoader);
+                Object dmCompanion = XposedHelpers.getStaticObjectField(
+                        XposedHelpers.findClass(
+                                "com.xiaomi.fitness.device.manager.export.WearableDeviceManager$Companion",
+                                hostLoader), "Companion");
+                Object dm = XposedHelpers.callStaticMethod(dmCls, "getInstance", dmCompanion);
+                Object model = XposedHelpers.callMethod(dm, "getCurrentDeviceModel");
+                did = (String) XposedHelpers.callMethod(model, "getDid");
+            }
+            if (did == null) throw new IllegalStateException("device id unavailable");
+
+            Object entity = XposedHelpers.callMethod(repo, "getWatchApp", pkg, did);
+            byte[] fp = (byte[]) XposedHelpers.callMethod(entity, "getFingerprint");
+            if (fp == null) throw new IllegalStateException("fingerprint unavailable for " + pkg);
+
+            Class<?> imCls = XposedHelpers.findClass(
+                    "com.xiaomi.xms.wearable.ui.appshop.manager.AppInstallManager", hostLoader);
+            Object imCompanion = XposedHelpers.getStaticObjectField(imCls, "Companion");
+            Object im = XposedHelpers.callMethod(imCompanion, "getINSTANCE");
+            XposedHelpers.callMethod(im, "unInstall", pkg, fp);
+            Log.i("Called unInstall(" + pkg + ") fp=" + fp.length + " bytes", null);
+        } catch (Throwable t) {
+            Log.e(t, "directUninstall");
+        }
+    }
+
     /** Open the built-in third-party app list (Mi Fitness 3.60.0i). */
     private static void openThirdAppList(Context ctx) {
         try {
@@ -470,6 +509,14 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             // The hook reads the extra and installs without any UI navigation.
             Intent in = hostActivity.getIntent();
             String rpkPath = in == null ? null : in.getStringExtra("rpk_path");
+            String uninstallPkg = in == null ? null : in.getStringExtra("uninstall_pkg");
+            if (uninstallPkg != null && !uninstallPkg.isEmpty()) {
+                final String upkg = uninstallPkg;
+                hostActivity.runOnUiThread(() -> {
+                    Log.i("Uninstall requested: " + upkg, null);
+                    directUninstall(hostActivity, upkg);
+                });
+            }
             if (rpkPath != null && !rpkPath.isEmpty()) {
                 final String path = rpkPath;
                 final String pkg = in.getStringExtra("pkg");
