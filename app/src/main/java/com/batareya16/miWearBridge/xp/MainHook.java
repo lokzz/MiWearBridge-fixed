@@ -258,8 +258,18 @@ public class MainHook implements IXposedHookLoadPackage, IXposedHookInitPackageR
             String did = (String) XposedHelpers.callMethod(model, "getDid");
             if (did == null) throw new IllegalStateException("device id unavailable");
 
-            Object entity = XposedHelpers.callMethod(repo, "getWatchApp", pkg, did);
-            byte[] fp = (byte[]) XposedHelpers.callMethod(entity, "getFingerprint");
+            byte[] fp = null;
+            try {
+                Object entity = XposedHelpers.callMethod(repo, "getWatchApp", pkg, did);
+                if (entity != null) fp = (byte[]) XposedHelpers.callMethod(entity, "getFingerprint");
+            } catch (Throwable ignore) { }
+            if (fp == null) {
+                // Some apps have no local DB record; derive the fingerprint from
+                // the installed companion's signing certificate instead.
+                Class<?> extCls = XposedHelpers.findClass(
+                        "com.xiaomi.xms.wearable.extensions.ExtensionsKt", hostLoader);
+                fp = (byte[]) XposedHelpers.callStaticMethod(extCls, "getFingerPrintByPackage", pkg);
+            }
             if (fp == null) throw new IllegalStateException("fingerprint unavailable for " + pkg);
 
             Class<?> imCls = XposedHelpers.findClass(
